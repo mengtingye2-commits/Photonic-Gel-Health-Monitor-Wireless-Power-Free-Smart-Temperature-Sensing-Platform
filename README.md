@@ -35,20 +35,12 @@ No electronics, no batteries, no wires. Just point, shoot, and read.
 
 ## How It Works
 
-### Calibration Pipeline
-
-```
-Camera Photo → ROI Selection → Average RGB → HSL Conversion
-    → Hue → Monotonic PCHIP (21 pts) → Wavelength (nm)
-    → GPR Cubic Spline (130 pts) → Temperature (°C)
-```
-
-1. **Image Capture**: User takes a photo of the HPC sensor via camera or file upload
-2. **ROI Selection**: User draws a region of interest on the sensor area
-3. **Color Extraction**: Average RGB color is computed from the ROI
-4. **Hue Calculation**: RGB → HSL conversion extracts the hue angle
-5. **Hue → Wavelength**: A 21-point monotonic PCHIP interpolation (with PAVA enforcement) maps image hue to the physical reflected wavelength
-6. **Wavelength → Temperature**: A 130-point GPR (Gaussian Process Regression) fit line maps wavelength to temperature via cubic spline interpolation
+1. **Image Capture**
+2. **ROI Selection**
+3. **Color Extraction**
+4. **Hue Calculation**
+5. **Hue → Wavelength**
+6. **Wavelength → Temperature**
 
 ### Health Assessment
 
@@ -56,30 +48,6 @@ Camera Photo → ROI Selection → Average RGB → HSL Conversion
 - **Condition-Aware Thresholds**: Adjusted based on subject type and health conditions
 - **2-Consecutive-Reading Rule**: Warnings trigger only after two consecutive readings in the warning zone to filter measurement noise
 - **Trend Detection**: Monitors for rapid temperature rises and recovery patterns
-
----
-
-## Project Structure
-
-```
-Project/
-├── index.html                          # Main HTML (modular version)
-├── HPC_Thermal_Health_Monitor.html     # Merged single-file version (for deployment)
-├── css/
-│   └── styles.css                      # Application styles
-├── js/
-│   ├── app.js                          # Core application logic & calibration data
-│   └── i18n.js                         # Internationalization (EN + 中文)
-├── flask_api/
-│   ├── flask_app.py                    # LLM backend API (Groq/Llama 3)
-│   └── requirements.txt               # Python dependencies
-├── process_images.py                   # Batch image processing & analysis
-├── wavelength_temp_plot.py             # Wavelength vs Temperature plot generator
-├── plot_42_44.py                       # Zoomed 42–44°C range plot
-├── compare_3models.py                  # Model comparison analysis
-├── diagnose42.py                       # Temperature cap diagnostics
-└── README.md                           # This file
-```
 
 ---
 
@@ -118,32 +86,6 @@ The app works fully offline with its built-in rule-based AI engine. To enable cl
 
 ---
 
-## Technology Stack
-
-| Layer | Technology |
-|-------|-----------|
-| **Frontend** | Vanilla HTML/CSS/JavaScript (no framework dependencies) |
-| **Charts** | Chart.js with Luxon date adapter |
-| **ML Runtime** | TensorFlow.js (loaded via CDN) |
-| **Interpolation** | Custom PCHIP & Cubic Spline implementations |
-| **LLM Backend** | Flask + Groq API (Llama 3) — optional |
-| **Deployment** | Static HTML file (zero infrastructure) |
-
----
-
-## Calibration Data
-
-- **Sensor**: 69 wt% HPC cholesteric liquid crystal
-- **Hue → Wavelength**: 21-point monotonic PCHIP interpolation
-  - Built from Raw Data Test images
-  - Monotonicity enforced via PAVA (Pool Adjacent Violators Algorithm)
-- **Wavelength → Temperature**: 130-point GPR fit line
-  - Range: 485.77 nm – 582.79 nm → 34.0°C – 44.0°C
-  - Gaussian Process Regression with cubic spline interpolation
-- **Validation Accuracy**: ±0.024°C on cyclic test data (84 images)
-
----
-
 ## Usage Guide
 
 1. **Select Subject Profile**: Choose the subject type (Human/Animal) and any health conditions
@@ -172,3 +114,4 @@ If you use this work in your research, please cite:
 ## License
 
 Research use only. © ZhuLab @ Northeastern University.
+
