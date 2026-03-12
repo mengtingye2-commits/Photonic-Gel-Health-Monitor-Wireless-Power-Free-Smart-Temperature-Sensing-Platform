@@ -21,7 +21,6 @@ No electronics, no batteries, no wires. Just point, shoot, and read.
 | Feature | Description |
 |---------|-------------|
 | **Camera-Based Sensing** | Extracts temperature from a photo of the photonic gel sensor using hue analysis |
-| **Two-Stage Calibration** | Hue → Wavelength (PCHIP) → Temperature (GPR spline) pipeline with ±0.024°C accuracy |
 | **3-Tier Health Assessment** | Normal / Warning (37–38°C) / Fever (≥38°C) with animated face indicators |
 | **AI Recommendations** | Rule-based "Think-Analyze-Decide" engine + optional LLM backend (Groq/Llama 3) |
 | **6 Subject Types** | Adult, Elderly, Infant, Child, Dog, Cat — each with tailored thresholds |
@@ -114,4 +113,5 @@ If you use this work in your research, please cite:
 ## License
 
 Research use only. © ZhuLab @ Northeastern University.
+
 
