@@ -97,7 +97,7 @@ en: {
     'chart.emptyHint': 'Capture and analyze an image to begin monitoring.',
 
     // Prediction
-    'prediction.title': 'Temperature Prediction (RNN)',
+    'prediction.title': 'Temperature Prediction',
     'prediction.forecast': '{min}-min forecast',
     'prediction.runPrediction': 'Run Prediction',
     'prediction.minReadings': 'Minimum 3 temperature readings required for prediction. Current readings:',
@@ -515,7 +515,7 @@ zh: {
     'chart.clear': '清除',
     'chart.empty': '尚无体温记录。',
     'chart.emptyHint': '拍摄并分析图像以开始监测。',
-    'prediction.title': '体温预测 (RNN)',
+    'prediction.title': '体温预测',
     'prediction.runPrediction': '运行预测',
     'prediction.minReadings': '需要至少3次体温读数才能进行预测。当前读数：',
     'prediction.feverOnset': '预测发烧时间',

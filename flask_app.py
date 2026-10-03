@@ -11,7 +11,7 @@ from groq import Groq
 
 app = Flask(__name__)
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "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")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 MODEL = "llama-3.3-70b-versatile"
 
 @app.after_request
@@ -242,6 +242,13 @@ def health_check():
 def recommend():
     if request.method == "OPTIONS":
         return jsonify({}), 200
+
+    if not GROQ_API_KEY:
+        return jsonify({
+            "success": False,
+            "error": "AI service not configured: GROQ_API_KEY environment variable is missing",
+            "source": "error",
+        }), 503
 
     try:
         data = request.get_json()

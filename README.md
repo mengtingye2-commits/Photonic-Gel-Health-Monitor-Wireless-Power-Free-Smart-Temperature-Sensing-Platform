@@ -69,19 +69,15 @@ No electronics, no batteries, no wires. Just point, shoot, and read.
    ```
 2. Open `http://localhost:8000` in your browser
 
-### Option 3: Enable LLM-Enhanced Recommendations (Optional)
+### Re-enabling the AI Recommendation Feature (Optional)
 
-The app works fully offline with its built-in rule-based AI engine. To enable cloud-based LLM recommendations:
+The AI (LLM) feature is optional and currently disabled. The site runs fully on its built-in rule-based recommendation engine — no server needed. To re-enable cloud-based LLM recommendations:
 
-1. Deploy the Flask API:
-   ```bash
-   cd flask_api
-   pip install -r requirements.txt
-   python flask_app.py
-   ```
-2. Or deploy to [PythonAnywhere](https://www.pythonanywhere.com) (free tier)
-3. In the app, toggle **"Use AI Engine"** and enter the API URL
-4. The system falls back to the rule-based engine if the LLM is unavailable
+1. Create a Groq API key at [console.groq.com](https://console.groq.com)
+2. Deploy `flask_app.py` to any Python host (e.g., [PythonAnywhere](https://www.pythonanywhere.com) free tier or [Render](https://render.com)) and set `GROQ_API_KEY` as an **environment variable** — never hardcode it in the source
+3. In the website's settings, enable **"AI Enhancement"** and enter the deployed service URL
+
+The system automatically falls back to the rule-based engine if the LLM service is unavailable.
 
 ---
 

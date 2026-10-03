@@ -1877,59 +1877,7 @@ class HistoryManager {
     }
 }
 
-// ======================= PREDICTION ENGINE (RNN-Based) ===========
-
-/**
- * Feature Extractor — Transforms raw temperature records into feature vectors
- * for prediction models. Features: [temp, rate_of_change, sin_hour, cos_hour, time_delta_hrs]
- */
-class FeatureExtractor {
-    static extract(records) {
-        return records.map((r, i) => {
-            const date = new Date(r.timestamp);
-            const hour = date.getHours() + date.getMinutes() / 60;
-            const sinHour = Math.sin(2 * Math.PI * hour / 24);
-            const cosHour = Math.cos(2 * Math.PI * hour / 24);
-            const dT = i > 0 ? r.temperature - records[i - 1].temperature : 0;
-            const dt = i > 0 ? (r.timestamp - records[i - 1].timestamp) / 3600000 : 0; // hours
-            const rate = dt > 0 ? dT / dt : 0; // C per hour
-            return [r.temperature, rate, sinHour, cosHour, dt];
-        });
-    }
-
-    /**
-     * Normalize features for LSTM input.
-     * Returns { normalized, params } where params stores mean/std for denormalization.
-     */
-    static normalize(features) {
-        const nFeatures = features[0].length;
-        const means = new Array(nFeatures).fill(0);
-        const stds = new Array(nFeatures).fill(0);
-        const n = features.length;
-
-        // Compute means
-        for (const row of features) {
-            for (let j = 0; j < nFeatures; j++) means[j] += row[j];
-        }
-        for (let j = 0; j < nFeatures; j++) means[j] /= n;
-
-        // Compute stds
-        for (const row of features) {
-            for (let j = 0; j < nFeatures; j++) stds[j] += (row[j] - means[j]) ** 2;
-        }
-        for (let j = 0; j < nFeatures; j++) {
-            stds[j] = Math.sqrt(stds[j] / n);
-            if (stds[j] < 1e-8) stds[j] = 1; // prevent division by zero
-        }
-
-        // Normalize
-        const normalized = features.map(row =>
-            row.map((val, j) => (val - means[j]) / stds[j])
-        );
-
-        return { normalized, params: { means, stds } };
-    }
-}
+// ======================= PREDICTION ENGINE ======================
 
 /**
  * Linear Predictor — Least-squares linear regression extrapolation.
@@ -2059,235 +2007,7 @@ class PhysicsPredictor {
 }
 
 /**
- * LSTM Predictor — TensorFlow.js LSTM network with Monte Carlo Dropout.
- * Provides deep-learning-based prediction when enough data is available.
- */
-class LSTMPredictor {
-    constructor() {
-        this.model = null;
-        this.isTraining = false;
-        this.isTrained = false;
-        this.normParams = null;
-        this.tempMean = 37;
-        this.tempStd = 1;
-        this.minRecords = 6; // minimum readings to train
-        this.windowSize = 5;
-        this.numFeatures = 5;
-        this.horizons = [15, 30, 45]; // minutes
-    }
-
-    /** Check if TensorFlow.js is available */
-    static isAvailable() {
-        return typeof tf !== 'undefined';
-    }
-
-    /** Build the LSTM model architecture */
-    async buildModel() {
-        if (!LSTMPredictor.isAvailable()) return;
-
-        const model = tf.sequential();
-        model.add(tf.layers.lstm({
-            units: 32,
-            inputShape: [this.windowSize, this.numFeatures],
-            returnSequences: true,
-            dropout: 0.2,
-            recurrentDropout: 0.1,
-        }));
-        model.add(tf.layers.lstm({
-            units: 16,
-            dropout: 0.2,
-        }));
-        model.add(tf.layers.dense({ units: 8, activation: 'relu' }));
-        model.add(tf.layers.dropout({ rate: 0.15 }));
-        model.add(tf.layers.dense({ units: 3 })); // predict 3 horizons
-
-        model.compile({
-            optimizer: tf.train.adam(0.005),
-            loss: 'meanSquaredError',
-        });
-
-        this.model = model;
-    }
-
-    /**
-     * Prepare training data from historical records.
-     * Creates sliding windows of features and targets (future temps).
-     */
-    prepareTrainingData(records) {
-        if (records.length < this.windowSize + 3) return null;
-
-        const features = FeatureExtractor.extract(records);
-        const { normalized, params } = FeatureExtractor.normalize(features);
-        this.normParams = params;
-        this.tempMean = params.means[0];
-        this.tempStd = params.stds[0];
-
-        const inputs = [];
-        const targets = [];
-
-        for (let i = 0; i <= records.length - this.windowSize - 1; i++) {
-            const window = normalized.slice(i, i + this.windowSize);
-            const lastTimestamp = records[i + this.windowSize - 1].timestamp;
-
-            // Find actual temperatures at +15, +30, +45 min horizons (interpolate)
-            const horizonTargets = this.horizons.map(h => {
-                const targetTime = lastTimestamp + h * 60000;
-                return this.interpolateTemp(records, targetTime);
-            });
-
-            // Skip if any horizon target is null (not enough future data)
-            if (horizonTargets.some(t => t === null)) continue;
-
-            // Normalize targets
-            const normalizedTargets = horizonTargets.map(t => (t - this.tempMean) / this.tempStd);
-            inputs.push(window);
-            targets.push(normalizedTargets);
-        }
-
-        // Data augmentation: add noisy copies
-        const augmentedInputs = [...inputs];
-        const augmentedTargets = [...targets];
-        for (let k = 0; k < 2; k++) { // 2x augmentation
-            for (let i = 0; i < inputs.length; i++) {
-                const noisyInput = inputs[i].map(row =>
-                    row.map(val => val + (Math.random() - 0.5) * 0.1)
-                );
-                augmentedInputs.push(noisyInput);
-                augmentedTargets.push(targets[i]);
-            }
-        }
-
-        if (augmentedInputs.length < 2) return null;
-
-        return {
-            inputs: augmentedInputs,
-            targets: augmentedTargets,
-            count: augmentedInputs.length,
-        };
-    }
-
-    /** Interpolate temperature at a specific timestamp from records */
-    interpolateTemp(records, targetTime) {
-        // If before first or after last, return null
-        if (targetTime < records[0].timestamp || targetTime > records[records.length - 1].timestamp) {
-            return null;
-        }
-
-        // Find surrounding records
-        for (let i = 0; i < records.length - 1; i++) {
-            if (records[i].timestamp <= targetTime && records[i + 1].timestamp >= targetTime) {
-                const dt = records[i + 1].timestamp - records[i].timestamp;
-                if (dt === 0) return records[i].temperature;
-                const fraction = (targetTime - records[i].timestamp) / dt;
-                return records[i].temperature + fraction * (records[i + 1].temperature - records[i].temperature);
-            }
-        }
-        return records[records.length - 1].temperature;
-    }
-
-    /** Train the model on historical data */
-    async train(records) {
-        if (!LSTMPredictor.isAvailable() || this.isTraining) return false;
-        if (records.length < this.minRecords) return false;
-
-        this.isTraining = true;
-
-        try {
-            if (!this.model) await this.buildModel();
-
-            const data = this.prepareTrainingData(records);
-            if (!data || data.count < 2) {
-                this.isTraining = false;
-                return false;
-            }
-
-            const xs = tf.tensor3d(data.inputs);
-            const ys = tf.tensor2d(data.targets);
-
-            await this.model.fit(xs, ys, {
-                epochs: 30,
-                batchSize: Math.min(16, data.count),
-                shuffle: true,
-                verbose: 0,
-            });
-
-            xs.dispose();
-            ys.dispose();
-            this.isTrained = true;
-            this.isTraining = false;
-            return true;
-        } catch (err) {
-            console.warn('LSTM training failed:', err);
-            this.isTraining = false;
-            return false;
-        }
-    }
-
-    /**
-     * Monte Carlo Dropout Prediction.
-     * Runs inference multiple times with dropout active to estimate uncertainty.
-     */
-    async predict(records, horizonMinutes) {
-        if (!this.isTrained || !this.model) return null;
-
-        try {
-            const features = FeatureExtractor.extract(records);
-            const window = features.slice(-this.windowSize);
-
-            if (window.length < this.windowSize) return null;
-
-            // Normalize using stored params
-            const normalizedWindow = window.map(row =>
-                row.map((val, j) => (val - this.normParams.means[j]) / this.normParams.stds[j])
-            );
-
-            const inputTensor = tf.tensor3d([normalizedWindow]);
-
-            // Monte Carlo Dropout: run N times with training=true
-            const numSamples = 30;
-            const allPredictions = [];
-
-            for (let i = 0; i < numSamples; i++) {
-                const pred = this.model.predict(inputTensor, { training: true });
-                allPredictions.push(Array.from(pred.dataSync()));
-                pred.dispose();
-            }
-
-            inputTensor.dispose();
-
-            // Compute mean and std per horizon
-            const numOutputs = allPredictions[0].length;
-            const means = new Array(numOutputs).fill(0);
-            const stds = new Array(numOutputs).fill(0);
-
-            for (const pred of allPredictions) {
-                for (let j = 0; j < numOutputs; j++) means[j] += pred[j];
-            }
-            for (let j = 0; j < numOutputs; j++) means[j] /= numSamples;
-
-            for (const pred of allPredictions) {
-                for (let j = 0; j < numOutputs; j++) stds[j] += (pred[j] - means[j]) ** 2;
-            }
-            for (let j = 0; j < numOutputs; j++) stds[j] = Math.sqrt(stds[j] / numSamples);
-
-            // Denormalize
-            return this.horizons.map((h, idx) => {
-                const horizonIdx = horizonMinutes.indexOf(h);
-                const i = horizonIdx >= 0 ? Math.min(idx, numOutputs - 1) : idx;
-                return {
-                    value: means[i] * this.tempStd + this.tempMean,
-                    std: stds[i] * this.tempStd,
-                };
-            });
-        } catch (err) {
-            console.warn('LSTM prediction failed:', err);
-            return null;
-        }
-    }
-}
-
-/**
- * Ensemble Predictor — Combines Linear, Holt, Physics, and LSTM predictions.
+ * Ensemble Predictor — Combines Linear, Holt, and Physics predictions.
  * Uses adaptive weighting based on recent prediction accuracy.
  */
 class EnsemblePredictor {
@@ -2295,8 +2015,7 @@ class EnsemblePredictor {
         this.linear = new LinearPredictor();
         this.holt = new HoltPredictor();
         this.physics = new PhysicsPredictor();
-        this.lstm = new LSTMPredictor();
-        this.weights = { linear: 0.25, holt: 0.30, physics: 0.20, lstm: 0.25 };
+        this.weights = { linear: 0.33, holt: 0.40, physics: 0.27 };
         this.predictionLog = []; // store past predictions for weight adaptation
     }
 
@@ -2330,16 +2049,6 @@ class EnsemblePredictor {
         if (physicsPred) {
             results.physics = physicsPred;
             totalWeight += this.weights.physics;
-        }
-
-        // LSTM prediction (if trained and available)
-        let lstmPred = null;
-        if (this.lstm.isTrained) {
-            lstmPred = await this.lstm.predict(records, horizonMinutes);
-            if (lstmPred) {
-                results.lstm = lstmPred;
-                totalWeight += this.weights.lstm;
-            }
         }
 
         if (totalWeight === 0) return null;
@@ -2378,7 +2087,6 @@ class EnsemblePredictor {
             individual: results,
             activeModels: Object.keys(results),
             weights: { ...this.weights },
-            lstmActive: lstmPred !== null,
         };
     }
 
@@ -2417,14 +2125,6 @@ class EnsemblePredictor {
         for (const name of Object.keys(this.weights)) {
             this.weights[name] /= wTotal;
         }
-    }
-
-    /** Train the LSTM model */
-    async trainLSTM(records) {
-        if (LSTMPredictor.isAvailable() && records.length >= this.lstm.minRecords) {
-            return await this.lstm.train(records);
-        }
-        return false;
     }
 }
 
@@ -2465,11 +2165,6 @@ class PredictionEngine {
         const baseline = CONFIG.riskThresholds[subjectType]?.baseline || 36.6;
         const thresholds = CONFIG.riskThresholds[subjectType];
 
-        // Try to train LSTM if enough data
-        if (records.length >= 6 && !this.ensemble.lstm.isTrained && !this.ensemble.lstm.isTraining) {
-            await this.ensemble.trainLSTM(records);
-        }
-
         // Run ensemble prediction
         const result = await this.ensemble.predict(records, horizons, baseline);
         if (!result) return { error: 'All models failed' };
@@ -2498,7 +2193,6 @@ class PredictionEngine {
         // Compute metrics
         const metrics = {
             activeModels: result.activeModels,
-            lstmActive: result.lstmActive,
             weights: result.weights,
             trainingSize: records.length,
             mae: this.computeMAE(),
